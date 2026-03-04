@@ -1,0 +1,35 @@
+version: "2.0"
+
+node:
+  id: "agent-001"
+  type: "ingress"
+  tags:
+    region: "local"
+
+controller:
+  enabled: true
+  address: "localhost:8443"
+  insecure: false
+  cert_file: "./configs/certs/client.crt"
+  key_file: "./configs/certs/client.key"
+  ca_file: "./configs/certs/ca.crt"
+
+inbounds:
+  - protocol: "socks5"
+    listen: "127.0.0.1:1080"
+    transport: "tcp"
+
+outbounds:
+  - name: "direct"
+    protocol: "direct"
+    group: "default"
+
+routing:
+  rules:
+    - type: "default"
+      outbound: "direct"
+
+observability:
+  logging:
+    level: "debug"
+    format: "console"

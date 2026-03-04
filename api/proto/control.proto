@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package nodepass.v2;
+
+option go_package = "github.com/nodeox/NodePro/api/proto";
+
+service ControlPlane {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+  rpc ReportStats(ReportStatsRequest) returns (ReportStatsResponse);
+}
+
+message RegisterRequest {
+  string node_id = 1;
+  string node_type = 2;
+  map<string, string> tags = 3;
+}
+
+message RegisterResponse {
+  string token = 1;
+  int64 heartbeat_interval = 2;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  string token = 2;
+  NodeStatus status = 3;
+}
+
+message NodeStatus {
+  int64 active_sessions = 1;
+  int64 total_bytes_in = 2;
+  int64 total_bytes_out = 3;
+}
+
+message HeartbeatResponse {
+  bool config_updated = 1;
+  string command = 2;
+  repeated PolicyUpdate policies = 3; // 新增：动态策略列表
+}
+
+message PolicyUpdate {
+  string user_id = 1;
+  int64 bandwidth_mbps = 2; // 限速 (0 表示不修改)
+  int64 quota_mb = 3;       // 配额 (0 表示不修改)
+  bool revoke = 4;          // 是否立即吊销该用户权限
+}
+
+message GetConfigRequest {
+  string node_id = 1;
+  string token = 2;
+}
+
+message GetConfigResponse {
+  bytes config_data = 1;
+}
+
+message ReportStatsRequest {
+  string node_id = 1;
+  repeated SessionStats sessions = 2;
+}
+
+message SessionStats {
+  string session_id = 1;
+  int64 bytes_sent = 2;
+}
+
+message ReportStatsResponse {
+  bool success = 1;
+}

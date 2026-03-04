@@ -1,0 +1,42 @@
+groups:
+- name: nodepass_alerts
+  rules:
+  # 1. 节点延迟过高告警
+  - alert: NodeHighLatency
+    expr: np_node_latency_ms > 1000
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High latency to node {{ $labels.node_name }}"
+      description: "Node {{ $labels.node_name }} latency is {{ $value }}ms, which is above 1000ms."
+
+  # 2. 转发错误率激增
+  - alert: HighRelayErrorRate
+    expr: rate(np_relay_errors_total[5m]) > 0.1
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High relay error rate detected"
+      description: "Agent is experiencing high relay error rate ({{ $value }}/s)."
+
+  # 3. 活跃会话数过高 (潜在攻击或资源耗尽)
+  - alert: TooManyActiveSessions
+    expr: np_active_sessions > 10000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Too many active sessions"
+      description: "Current active sessions: {{ $value }}."
+
+  # 4. 节点掉线告警
+  - alert: NodeDown
+    expr: up{job="nodepass"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "NodePass agent is down"
+      description: "Agent on {{ $labels.instance }} has been down for more than 1 minute."

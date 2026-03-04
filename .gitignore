@@ -1,0 +1,32 @@
+# Binaries
+bin/
+nodepass
+nodepass.exe
+
+# OS generated files
+.DS_Store
+.DS_Store?
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# Go
+go.sum
+vendor/
+*.test
+*.prof
+coverage.out
+
+# Logs
+*.log
+/var/log/nodepass/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Config
+/configs/local_config.yaml
+.env
