@@ -37,6 +37,10 @@ func NewQUICDialer(certFile, keyFile, caFile string, serverName string, insecure
 	tlsCfg, err := NewClientTLSConfig(certFile, keyFile, caFile, serverName, insecure)
 	if err != nil { return nil, err }
 
+	return NewQUICDialerWithTLS(tlsCfg), nil
+}
+
+func NewQUICDialerWithTLS(tlsCfg *tls.Config) *QUICDialer {
 	return &QUICDialer{
 		tlsConfig: tlsCfg,
 		quicConfig: &quic.Config{
@@ -46,7 +50,7 @@ func NewQUICDialer(certFile, keyFile, caFile string, serverName string, insecure
 			MaxStreamReceiveWindow:     16 * 1024 * 1024,
 			MaxConnectionReceiveWindow: 32 * 1024 * 1024,
 		},
-	}, nil
+	}
 }
 
 func (d *QUICDialer) Dial(ctx context.Context, addr string) (net.Conn, error) {

@@ -35,7 +35,7 @@ func TestEndToEndNPChain(t *testing.T) {
 	egressCfg := &common.Config{
 		Node: common.NodeConfig{ID: "egress", Type: "egress"},
 		Inbounds: []common.InboundConfig{
-			{Protocol: "np-chain", Listen: "127.0.0.1:" + egressPort},
+			{Protocol: "npchain", Listen: "127.0.0.1:" + egressPort},
 		},
 		Outbounds: []common.OutboundConfig{
 			{Name: "direct", Protocol: "direct", Group: "default"},
@@ -43,9 +43,9 @@ func TestEndToEndNPChain(t *testing.T) {
 		Controller: common.ControllerConfig{
 			Enabled:  false,
 			Insecure: true,
-			CertFile: "../../configs/certs/server.crt",
-			KeyFile:  "../../configs/certs/server.key",
-			CAFile:   "../../configs/certs/ca.crt",
+			CertFile: "../certs/server.crt",
+			KeyFile:  "../certs/server.key",
+			CAFile:   "../certs/server.crt",
 		},
 	}
 	
@@ -69,7 +69,7 @@ func TestEndToEndNPChain(t *testing.T) {
 		Outbounds: []common.OutboundConfig{
 			{
 				Name:      "proxy",
-				Protocol:  "np-chain",
+				Protocol:  "npchain",
 				Address:   "127.0.0.1:" + egressPort,
 				Transport: "quic",
 			},
@@ -82,9 +82,9 @@ func TestEndToEndNPChain(t *testing.T) {
 		Controller: common.ControllerConfig{
 			Enabled:  false,
 			Insecure: true,
-			CertFile: "../../configs/certs/client.crt",
-			KeyFile:  "../../configs/certs/client.key",
-			CAFile:   "../../configs/certs/ca.crt",
+			CertFile: "../certs/server.crt",
+			KeyFile:  "../certs/server.key",
+			CAFile:   "../certs/server.crt",
 		},
 	}
 	

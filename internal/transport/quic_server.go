@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"time"
 
 	"github.com/quic-go/quic-go"
 	"go.uber.org/zap"
@@ -24,8 +25,8 @@ func NewQUICServerWithTLS(listenAddr string, tlsCfg *tls.Config, logger *zap.Log
 		listenAddr: listenAddr,
 		tlsConfig:  tlsCfg,
 		quicConfig: &quic.Config{
-			MaxIdleTimeout:             30000 * 1000000, // 30s
-			KeepAlivePeriod:            10000 * 1000000, // 10s
+			MaxIdleTimeout:             30 * time.Second,
+			KeepAlivePeriod:            10 * time.Second,
 			EnableDatagrams:            true,
 			MaxStreamReceiveWindow:     16 * 1024 * 1024,
 			MaxConnectionReceiveWindow: 32 * 1024 * 1024,

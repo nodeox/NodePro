@@ -49,6 +49,16 @@ func Relay(ctx context.Context, src, dst net.Conn, name string, userID string, l
 	buf := GetBuf()
 	defer PutBuf(buf)
 
+	var totalRead int64
+	defer func() {
+		if sessionID != "" && totalRead > 0 {
+			if val, ok := ActiveSessionMap.Load(sessionID); ok {
+				s := val.(*SessionInfo)
+				s.BytesSent += totalRead
+			}
+		}
+	}()
+
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 {
@@ -59,14 +69,14 @@ func Relay(ctx context.Context, src, dst net.Conn, name string, userID string, l
 				}
 			}
 
-			if sessionID != "" {
-				if val, ok := ActiveSessionMap.Load(sessionID); ok {
-					s := val.(*SessionInfo)
-					s.BytesSent += int64(n)
-				}
-			}
+			totalRead += int64(n)
 
 			BytesTransferred.WithLabelValues(name, "relay").Add(float64(n))
+			if name == "upstream" {
+				AddBytesIn(int64(n))
+			} else {
+				AddBytesOut(int64(n))
+			}
 			
 			if _, werr := dst.Write(buf[:n]); werr != nil {
 				span.RecordError(werr)
@@ -86,6 +96,8 @@ func Relay(ctx context.Context, src, dst net.Conn, name string, userID string, l
 
 // DualRelay 定义为 6 参数
 func DualRelay(parentCtx context.Context, c1, c2 net.Conn, userID string, limiter *BandwidthLimiter, quota *QuotaManager) {
+	SetupTCP(c1)
+	SetupTCP(c2)
 	IncActiveSessions()
 	defer DecActiveSessions()
 
@@ -112,6 +124,28 @@ func DualRelay(parentCtx context.Context, c1, c2 net.Conn, userID string, limite
 	<-errCh
 }
 
+// Listen 创建一个监听器，并根据配置决定是否开启 Proxy Protocol 支持
+func Listen(network, address string, useProxyProto bool) (net.Listener, error) {
+	ln, err := net.Listen(network, address)
+	if err != nil {
+		return nil, err
+	}
+	if useProxyProto {
+		return &ProxyProtoListener{Listener: ln}, nil
+	}
+	return ln, nil
+}
+
+// SetupTCP 优化 TCP 连接性能
+func SetupTCP(conn net.Conn) {
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		tcp.SetNoDelay(true)
+		tcp.SetKeepAlive(true)
+		tcp.SetKeepAlivePeriod(3 * time.Minute)
+	}
+}
+
+// MaskAddr 遮掩地址以保护隐私
 func MaskAddr(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil { return "***" }

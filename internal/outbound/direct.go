@@ -2,13 +2,14 @@ package outbound
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
 	"github.com/nodeox/NodePro/internal/common"
 )
 
-// DirectHandler 直接出站处理器
+// DirectHandler 直接出站处理器，支持 TCP 和 UDP
 type DirectHandler struct {
 	name    string
 	group   string
@@ -27,9 +28,23 @@ func NewDirectHandler(name, group string) *DirectHandler {
 	}
 }
 
-// Dial 直接拨号到目标地址
+// Dial 根据元数据中的 Network 进行拨号
 func (d *DirectHandler) Dial(ctx context.Context, meta common.SessionMeta) (net.Conn, error) {
-	return d.dialer.DialContext(ctx, "tcp", meta.Target)
+	network := meta.Network
+	if network == "" {
+		network = "tcp" // 默认为 tcp
+	}
+	
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		return d.dialer.DialContext(ctx, network, meta.Target)
+	case "udp", "udp4", "udp6":
+		// 对于 UDP，net.Dial 返回的是一个已经 "connect" 的 UDPConn，
+		// 它实现了 net.Conn 接口，可以像 TCP 一样使用 Read/Write。
+		return d.dialer.DialContext(ctx, network, meta.Target)
+	default:
+		return nil, fmt.Errorf("unsupported network type: %s", network)
+	}
 }
 
 // HealthCheck 健康检查总是返回满分

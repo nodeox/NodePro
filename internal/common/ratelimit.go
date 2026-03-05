@@ -64,6 +64,12 @@ func (m *LimiterManager) GetOrCreate(userID string) *BandwidthLimiter {
 	return l
 }
 
+func (m *LimiterManager) Update(userID string, mbps int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.limiters[userID] = NewBandwidthLimiter(mbps * 1024 * 1024)
+}
+
 // LimitReader 包装一个 io.Reader 以实现读取限速
 type LimitReader struct {
 	r       interface{ Read([]byte) (int, error) }

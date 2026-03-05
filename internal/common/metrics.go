@@ -9,6 +9,8 @@ import (
 
 var (
 	activeCount atomic.Int64
+	totalBytesIn atomic.Int64
+	totalBytesOut atomic.Int64
 
 	ActiveSessions = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "np_active_sessions",
@@ -54,4 +56,16 @@ func DecActiveSessions() {
 
 func GetActiveSessions() int64 {
 	return activeCount.Load()
+}
+
+func AddBytesIn(n int64) {
+	totalBytesIn.Add(n)
+}
+
+func AddBytesOut(n int64) {
+	totalBytesOut.Add(n)
+}
+
+func GetTotalStats() (in, out int64) {
+	return totalBytesIn.Load(), totalBytesOut.Load()
 }

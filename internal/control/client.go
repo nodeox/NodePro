@@ -27,14 +27,24 @@ type ControlClient struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	
+	tlsConfig *tls.Config
+
 	onConfigUpdate func(*common.Config)
 	onCommand      func(string)
 	onPolicyUpdate func([]*pb.PolicyUpdate)
 }
 
-func NewControlClient(cfg *common.ControllerConfig, nodeID string, nodeType string, logger *zap.Logger) *ControlClient {
+func NewControlClient(cfg *common.ControllerConfig, nodeID, nodeType string, tlsCfg *tls.Config, logger *zap.Logger) *ControlClient {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &ControlClient{cfg: cfg, nodeID: nodeID, nodeType: nodeType, logger: logger, ctx: ctx, cancel: cancel}
+	return &ControlClient{
+		cfg:       cfg,
+		nodeID:    nodeID,
+		nodeType:  nodeType,
+		tlsConfig: tlsCfg,
+		logger:    logger,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
 }
 
 func (c *ControlClient) SetHandlers(cfgFn func(*common.Config), cmdFn func(string), polyFn func([]*pb.PolicyUpdate)) {
@@ -48,46 +58,67 @@ func (c *ControlClient) Start() error {
 	if c.cfg.Insecure {
 		opts = append(opts, grpc.WithInsecure())
 	} else {
-		tlsCfg := &tls.Config{InsecureSkipVerify: false} // 修复：在生产环境中应严格验证
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(c.tlsConfig)))
 	}
+	
 	opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
-		Time: 10 * time.Second, Timeout: 3 * time.Second, PermitWithoutStream: true,
+		Time:                10 * time.Second,
+		Timeout:             3 * time.Second,
+		PermitWithoutStream: true,
 	}))
 
-	go func() {
-		backoff := 1 * time.Second
-		for {
-			// 修复：每次重连前先关闭旧连接，防止泄露
-			if c.conn != nil {
-				c.conn.Close()
-				c.conn = nil
-			}
-
-			conn, err := grpc.DialContext(c.ctx, c.cfg.Address, opts...)
-			if err == nil {
-				c.conn = conn
-				c.client = pb.NewControlPlaneClient(conn)
-				if rerr := c.register(); rerr == nil {
-					go c.heartbeatLoop()
-					return
-				}
-			}
-			
-			select {
-			case <-time.After(backoff):
-				backoff *= 2
-				if backoff > 1*time.Minute { backoff = 1 * time.Minute }
-			case <-c.ctx.Done(): return
-			}
-		}
-	}()
+	go c.reconnectLoop(opts)
 	return nil
 }
 
+func (c *ControlClient) reconnectLoop(opts []grpc.DialOption) {
+	backoff := 1 * time.Second
+	for {
+		if c.conn != nil {
+			c.conn.Close()
+			c.conn = nil
+		}
+
+		c.logger.Info("Connecting to controller", zap.String("addr", c.cfg.Address))
+		conn, err := grpc.DialContext(c.ctx, c.cfg.Address, opts...)
+		if err == nil {
+			c.conn = conn
+			c.client = pb.NewControlPlaneClient(conn)
+			if rerr := c.register(); rerr == nil {
+				c.logger.Info("Registered to controller successfully")
+				backoff = 1 * time.Second
+				c.heartbeatLoop()
+				// If heartbeatLoop returns, it means we lost connection or ctx done
+			} else {
+				c.logger.Error("Failed to register to controller", zap.Error(rerr))
+			}
+		} else {
+			c.logger.Error("Failed to connect to controller", zap.Error(err))
+		}
+		
+		select {
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > 1*time.Minute {
+				backoff = 1 * time.Minute
+			}
+		case <-c.ctx.Done():
+			return
+		}
+	}
+}
+
 func (c *ControlClient) register() error {
-	resp, err := c.client.Register(c.ctx, &pb.RegisterRequest{NodeId: c.nodeID, NodeType: c.nodeType})
-	if err != nil { return err }
+	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+	
+	resp, err := c.client.Register(ctx, &pb.RegisterRequest{
+		NodeId:   c.nodeID,
+		NodeType: c.nodeType,
+	})
+	if err != nil {
+		return err
+	}
 	c.token = resp.Token
 	return nil
 }
@@ -102,27 +133,59 @@ func (c *ControlClient) heartbeatLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			in, out := common.GetTotalStats()
 			resp, err := c.client.Heartbeat(c.getContext(), &pb.HeartbeatRequest{
-				NodeId: c.nodeID, Token: c.token, Status: &pb.NodeStatus{ActiveSessions: common.GetActiveSessions()},
+				NodeId: c.nodeID,
+				Token:  c.token,
+				Status: &pb.NodeStatus{
+					ActiveSessions: common.GetActiveSessions(),
+					TotalBytesIn:   in,
+					TotalBytesOut:  out,
+				},
 			})
-			if err != nil { continue }
-			if resp.ConfigUpdated && c.onConfigUpdate != nil { c.fetchAndApplyConfig() }
-			if resp.Command != "" && c.onCommand != nil { c.onCommand(resp.Command) }
-			if len(resp.Policies) > 0 && c.onPolicyUpdate != nil { c.onPolicyUpdate(resp.Policies) }
-		case <-c.ctx.Done(): return
+			if err != nil {
+				c.logger.Warn("Heartbeat failed", zap.Error(err))
+				return // Trigger reconnect
+			}
+			
+			if resp.ConfigUpdated && c.onConfigUpdate != nil {
+				go c.fetchAndApplyConfig()
+			}
+			if resp.Command != "" && c.onCommand != nil {
+				c.onCommand(resp.Command)
+			}
+			if len(resp.Policies) > 0 && c.onPolicyUpdate != nil {
+				c.onPolicyUpdate(resp.Policies)
+			}
+		case <-c.ctx.Done():
+			return
 		}
 	}
 }
 
 func (c *ControlClient) fetchAndApplyConfig() {
-	resp, err := c.client.GetConfig(c.getContext(), &pb.GetConfigRequest{NodeId: c.nodeID, Token: c.token})
-	if err != nil { return }
+	c.logger.Info("Fetching new config from controller")
+	resp, err := c.client.GetConfig(c.getContext(), &pb.GetConfigRequest{
+		NodeId: c.nodeID,
+		Token:  c.token,
+	})
+	if err != nil {
+		c.logger.Error("Failed to fetch config", zap.Error(err))
+		return
+	}
+	
 	var newCfg common.Config
-	if err := yaml.Unmarshal(resp.ConfigData, &newCfg); err == nil { c.onConfigUpdate(&newCfg) }
+	if err := yaml.Unmarshal(resp.ConfigData, &newCfg); err != nil {
+		c.logger.Error("Failed to unmarshal remote config", zap.Error(err))
+		return
+	}
+	c.onConfigUpdate(&newCfg)
 }
 
 func (c *ControlClient) Stop() error {
 	c.cancel()
-	if c.conn != nil { return c.conn.Close() }
+	if c.conn != nil {
+		return c.conn.Close()
+	}
 	return nil
 }

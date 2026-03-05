@@ -1,0 +1,15 @@
+[Unit]
+Description=NodePass 2.0 Agent
+After=network.target nss-lookup.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/nodepass
+ExecStart=/usr/local/bin/nodepass --config /etc/nodepass/config.yaml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

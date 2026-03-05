@@ -16,7 +16,8 @@ import (
 func main() {
 	var (
 		addr = flag.String("addr", "http://127.0.0.1:8081", "Agent Admin API address")
-		cmd  = flag.String("cmd", "status", "Command: status, config, metrics, logs, connections, kick, kick-user, init-config")
+		cmd  = flag.String("cmd", "status", "Command: status, config, metrics, logs, connections, kick, kick-user, dns-flush, quota-reset, init-config")
+		id   = flag.String("id", "", "ID for kick, kick-user, or quota-reset")
 		out  = flag.String("out", "configs/auto_ingress.yaml", "Output path for init-config")
 	)
 	flag.Parse()
@@ -33,19 +34,16 @@ func main() {
 	case "connections":
 		callAPI(*addr + "/connections")
 	case "kick":
-		id := flag.Arg(0)
-		if id == "" {
-			fmt.Println("Usage: npctl --cmd kick <session_id>")
-			os.Exit(1)
-		}
-		kickSession(*addr, id)
+		if *id == "" { fmt.Println("Usage: npctl --cmd kick --id <session_id>"); os.Exit(1) }
+		postAPI(*addr + "/connections/close?id=" + *id)
 	case "kick-user":
-		userID := flag.Arg(0)
-		if userID == "" {
-			fmt.Println("Usage: npctl --cmd kick-user <user_id>")
-			os.Exit(1)
-		}
-		kickUser(*addr, userID)
+		if *id == "" { fmt.Println("Usage: npctl --cmd kick-user --id <user_id>"); os.Exit(1) }
+		postAPI(*addr + "/users/kick?user_id=" + *id)
+	case "dns-flush":
+		postAPI(*addr + "/dns/flush")
+	case "quota-reset":
+		if *id == "" { fmt.Println("Usage: npctl --cmd quota-reset --id <user_id>"); os.Exit(1) }
+		postAPI(*addr + "/users/quota/reset?user_id=" + *id)
 	case "init-config":
 		generateInitConfig(*out)
 	default:
@@ -54,21 +52,34 @@ func main() {
 	}
 }
 
-func kickSession(addr, id string) {
-	resp, err := http.Post(addr+"/connections/close?id="+id, "application/json", nil)
+func callAPI(url string) {
+	resp, err := http.Get(url)
 	if err != nil { fmt.Printf("Error: %v\n", err); return }
-	if resp.StatusCode == http.StatusNoContent {
-		fmt.Printf("Session %s closed.\n", id)
+	defer resp.Body.Close()
+	printResp(resp)
+}
+
+func postAPI(url string) {
+	resp, err := http.Post(url, "application/json", nil)
+	if err != nil { fmt.Printf("Error: %v\n", err); return }
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		fmt.Println("Success")
 	} else {
-		fmt.Printf("Failed to close session: %s\n", resp.Status)
+		printResp(resp)
 	}
 }
 
-func kickUser(addr, userID string) {
-	resp, err := http.Post(addr+"/users/kick?user_id="+userID, "application/json", nil)
-	if err != nil { fmt.Printf("Error: %v\n", err); return }
+func printResp(resp *http.Response) {
 	body, _ := io.ReadAll(resp.Body)
-	fmt.Print(string(body))
+	if resp.Header.Get("Content-Type") == "application/json" {
+		var out interface{}
+		json.Unmarshal(body, &out)
+		pretty, _ := json.MarshalIndent(out, "", "  ")
+		fmt.Println(string(pretty))
+	} else {
+		fmt.Println(string(body))
+	}
 }
 
 func generateInitConfig(path string) {
@@ -98,19 +109,4 @@ func generateInitConfig(path string) {
 	data, _ := yaml.Marshal(cfg)
 	os.WriteFile(path, data, 0644)
 	fmt.Printf("Default configuration generated at: %s\n", path)
-}
-
-func callAPI(url string) {
-	resp, err := http.Get(url)
-	if err != nil { fmt.Printf("Error: %v\n", err); return }
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.Header.Get("Content-Type") == "application/json" {
-		var out interface{}
-		json.Unmarshal(body, &out)
-		pretty, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Println(string(pretty))
-	} else {
-		fmt.Println(string(body))
-	}
 }

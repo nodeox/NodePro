@@ -16,6 +16,7 @@ type BaseRouter struct {
 	rules     []common.RoutingRule
 	outbounds map[string]common.OutboundHandler
 	geoip     *GeoIPMatcher
+	resolver  common.Resolver // 智能解析器接口
 }
 
 func NewRouter() *BaseRouter {
@@ -24,13 +25,21 @@ func NewRouter() *BaseRouter {
 	}
 }
 
-func (r *BaseRouter) SetGeoIP(m *GeoIPMatcher) {
+func (r *BaseRouter) SetResolver(res common.Resolver) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.geoip = m
+	r.resolver = res
 }
 
 func (r *BaseRouter) Route(meta common.SessionMeta) (common.OutboundHandler, error) {
+	// 0. 处理 Fake IP 还原
+	host, port, _ := net.SplitHostPort(meta.Target)
+	if ip := net.ParseIP(host); ip != nil && r.resolver != nil {
+		if domain, ok := r.resolver.ResolveFakeIP(ip); ok {
+			meta.Target = net.JoinHostPort(domain, port)
+		}
+	}
+
 	// 1. 在锁内匹配规则并确定出站或组
 	r.mu.RLock()
 	var matchedRule *common.RoutingRule

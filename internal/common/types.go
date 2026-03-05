@@ -17,6 +17,7 @@ type SessionMeta struct {
 	UserID    string            // 租户/用户 ID
 	Source    net.Addr          // 来源地址
 	Target    string            // 最终目标地址 (host:port)
+	Network   string            // 网络类型 ("tcp", "udp")
 	HopChain  []string          // 多跳链路列表
 	RouteTags map[string]string // 路由标签
 	CreatedAt time.Time         // 创建时间
@@ -62,6 +63,15 @@ type Router interface {
 	
 	// UpdateRules 更新路由规则
 	UpdateRules(rules []RoutingRule)
+
+	// SetResolver 设置解析器
+	SetResolver(res Resolver)
+}
+
+// Resolver 解析器接口
+type Resolver interface {
+	LookupIP(ctx context.Context, host string) ([]net.IP, error)
+	ResolveFakeIP(ip net.IP) (string, bool)
 }
 
 // RoutingRule 路由规则定义

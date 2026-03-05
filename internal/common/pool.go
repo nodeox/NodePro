@@ -26,9 +26,5 @@ func PutBuf(buf []byte) {
 	if len(buf) != BufferSize {
 		return
 	}
-	// 修复：归还前清零数据，防止敏感信息泄漏
-	for i := range buf {
-		buf[i] = 0
-	}
 	BufPool.Put(buf)
 }
